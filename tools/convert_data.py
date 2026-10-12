@@ -30,6 +30,14 @@ def log(*a):
     print(time.strftime('%H:%M:%S'), *a, flush=True)
 
 
+def make_code_header(hdr):
+    """Declarative code header from metal_ref.json: {"kind": "prefix", "hex": "<bytes before the MSL source>"}."""
+    if hdr.get('kind') == 'prefix':
+        prefix = bytes.fromhex(hdr['hex'])
+        return lambda msl: prefix + (msl.encode() if isinstance(msl, str) else msl)
+    raise ValueError('unknown code_header kind: %r' % hdr.get('kind'))
+
+
 def load_metal_conventions(path):
     """Settings measured from the shell's own (Unity-compiled) Metal shaders, see inspect_reference.py."""
     if path and os.path.exists(path):
@@ -37,7 +45,7 @@ def load_metal_conventions(path):
         convert_shader.METAL_TIERS = ref.get('tiers', convert_shader.METAL_TIERS)
         hdr = ref.get('code_header')
         if hdr:
-            convert_shader.METAL_CODE_HEADER = eval(hdr['factory'])(hdr)   # trusted: our own file
+            convert_shader.METAL_CODE_HEADER = make_code_header(hdr)
     return convert_shader.METAL_TIERS, convert_shader.METAL_CODE_HEADER
 
 
