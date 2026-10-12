@@ -49,6 +49,10 @@ static class Program
     {
         if (args.Length >= 2 && args[0] == "analyze") return Analyze.Run(args[1]);
         if (args.Length >= 2 && args[0] == "stackcheck") return Analyze.StackCheck(args.Skip(1).ToArray());
+        if (args.Length >= 3 && args[0] == "dumpil") return Analyze.DumpIL(args[1], args[2]);
+        if (args.Length >= 3 && args[0] == "types") return Analyze.Types(args[1], args[2]);
+        if (args.Length >= 4 && args[0] == "stubmethods") return Analyze.StubMethods(args[1], args[2], args[3]);
+        if (args.Length >= 3 && args[0] == "memberrefs") return Analyze.MemberRefs(args[1], args[2]);
         if (args.Length >= 3 && args[0] == "calls") return Analyze.Calls(args[1], args[2]);
         if (args.Length >= 4 && args[0] == "patch") return Patch(args[1], args[2], args[3]);
         Console.Error.WriteLine("usage: PpgPatcher patch <managedDir> <PPGShim.dll> <outDir> | analyze <managedDir>");
@@ -71,6 +75,7 @@ static class Program
             var ctx = new Ctx(asm.MainModule, shim.MainModule);
             int n = StubPInvokes(ctx);
             n += RedirectProcess(ctx);
+            n += RemoveTypedReferences(ctx);
             if (InputRedirect.Contains(asm.Name.Name))
                 n += RedirectInput(ctx);
             if (asm.Name.Name == "Assembly-CSharp")
@@ -205,6 +210,50 @@ static class Program
 
     // ------------------------------------------------------------------------------------------
     static readonly Regex PathLiteral = new Regex(@"^[\w .\-]+(\\[\w .\-]*)+$");
+
+    // IL2CPP 2020.3's stack analysis does not model mkrefany (C# __makeref) and dies with "Stack empty" -
+    // reported against an unrelated method (System.Tuple::Create). The only user is
+    // Newtonsoft.Json.UnityConverters' TypeExtensions.SetValueDirectRef<T1,T2>(FieldInfo f, ref T1 obj, T2 value):
+    //     f.SetValueDirect(__makeref(obj), value);
+    // which becomes the equivalent
+    //     object boxed = obj; f.SetValue(boxed, value); obj = (T1)boxed;
+    static int RemoveTypedReferences(Ctx c)
+    {
+        int n = 0;
+        foreach (var t in c.Mod.GetTypes())
+            foreach (var m in t.Methods)
+            {
+                if (!m.HasBody || !m.Body.Instructions.Any(i => i.OpCode.Code == Code.Mkrefany || i.OpCode.Code == Code.Refanyval ||
+                                                               i.OpCode.Code == Code.Refanytype || i.OpCode.Code == Code.Arglist))
+                    continue;
+                if (m.Name != "SetValueDirectRef" || !m.HasGenericParameters || m.GenericParameters.Count != 2 || m.Parameters.Count != 3 ||
+                    m.Parameters[0].ParameterType.FullName != "System.Reflection.FieldInfo" || !m.Parameters[1].ParameterType.IsByReference)
+                {
+                    c.Fail("typed reference (__makeref) in " + m.FullName + " - IL2CPP cannot convert it");
+                    continue;
+                }
+                var t1 = m.GenericParameters[0];
+                var t2 = m.GenericParameters[1];
+                var setValue = new MethodReference("SetValue", c.Mod.TypeSystem.Void, m.Parameters[0].ParameterType) { HasThis = true };
+                setValue.Parameters.Add(new ParameterDefinition(c.Mod.TypeSystem.Object));
+                setValue.Parameters.Add(new ParameterDefinition(c.Mod.TypeSystem.Object));
+                var body = m.Body;
+                body.Instructions.Clear();
+                body.ExceptionHandlers.Clear();
+                body.Variables.Clear();
+                var boxed = new VariableDefinition(c.Mod.TypeSystem.Object);
+                body.Variables.Add(boxed);
+                body.InitLocals = true;
+                var il = body.GetILProcessor();
+                il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Ldobj, t1); il.Emit(OpCodes.Box, t1); il.Emit(OpCodes.Stloc, boxed);
+                il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldloc, boxed); il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Box, t2);
+                il.Emit(OpCodes.Callvirt, setValue);
+                il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Ldloc, boxed); il.Emit(OpCodes.Unbox_Any, t1); il.Emit(OpCodes.Stobj, t1);
+                il.Emit(OpCodes.Ret);
+                n++;
+            }
+        return n;
+    }
 
     static int PatchGame(Ctx c)
     {

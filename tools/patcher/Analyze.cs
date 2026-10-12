@@ -50,6 +50,77 @@ static class Analyze
     }
 
     // `PpgPatcher calls <dll> <substring>`: every call site whose callee's full name contains the substring.
+    // `PpgPatcher dumpil <dll> <substring>`: prints the IL of every method whose full name contains the substring.
+    public static int DumpIL(string path, string what)
+    {
+        var resolver = new DefaultAssemblyResolver();
+        resolver.AddSearchDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
+        var mod = AssemblyDefinition.ReadAssembly(path, new ReaderParameters { AssemblyResolver = resolver }).MainModule;
+        foreach (var t in mod.GetTypes())
+            foreach (var m in t.Methods)
+            {
+                if (!m.FullName.Contains(what)) continue;
+                Console.WriteLine($"== {m.FullName}  body={m.HasBody} rva={m.RVA} impl={m.ImplAttributes}");
+                if (!m.HasBody) continue;
+                Console.WriteLine($"   maxstack={m.Body.MaxStackSize} locals={m.Body.Variables.Count} initlocals={m.Body.InitLocals}");
+                foreach (var ins in m.Body.Instructions) Console.WriteLine("   " + ins);
+            }
+        return 0;
+    }
+
+    // `PpgPatcher types <dir> <substring>`: lists the types (and type forwarders) matching the substring in every dll.
+    public static int Types(string dir, string what)
+    {
+        foreach (var path in Directory.GetFiles(dir, "*.dll").OrderBy(p => p))
+        {
+            ModuleDefinition mod;
+            try { mod = ModuleDefinition.ReadModule(path); } catch { continue; }
+            foreach (var t in mod.GetTypes())
+                if (t.FullName.Contains(what)) Console.WriteLine($"{Path.GetFileName(path)}: {t.FullName}");
+            foreach (var e in mod.ExportedTypes)
+                if (e.FullName.Contains(what)) Console.WriteLine($"{Path.GetFileName(path)}: forwarder {e.FullName} -> {e.Scope}");
+        }
+        return 0;
+    }
+
+    // `PpgPatcher stubmethods <dll> <substring> <out.dll>`: replaces matching method bodies with `throw null` (experiments).
+    public static int StubMethods(string path, string what, string outPath)
+    {
+        var resolver = new DefaultAssemblyResolver();
+        resolver.AddSearchDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
+        var asm = AssemblyDefinition.ReadAssembly(path, new ReaderParameters { AssemblyResolver = resolver });
+        foreach (var t in asm.MainModule.GetTypes())
+            foreach (var m in t.Methods)
+            {
+                if (!m.HasBody || !m.FullName.Contains(what)) continue;
+                m.Body.Instructions.Clear(); m.Body.ExceptionHandlers.Clear(); m.Body.Variables.Clear();
+                var il = m.Body.GetILProcessor();
+                il.Emit(Mono.Cecil.Cil.OpCodes.Ldnull); il.Emit(Mono.Cecil.Cil.OpCodes.Throw);
+                Console.WriteLine("stubbed " + m.FullName);
+            }
+        asm.Write(outPath);
+        return 0;
+    }
+
+    // `PpgPatcher memberrefs <dir> <substring>`: every MemberRef / MethodSpec in every dll matching the substring.
+    public static int MemberRefs(string dir, string what)
+    {
+        foreach (var path in Directory.GetFiles(dir, "*.dll").OrderBy(p => p))
+        {
+            ModuleDefinition mod;
+            try { mod = ModuleDefinition.ReadModule(path); } catch { continue; }
+            foreach (var r in mod.GetMemberReferences())
+                if (r.FullName.Contains(what)) Console.WriteLine($"{Path.GetFileName(path)}: memberref {r.FullName}");
+            for (uint i = 1; ; i++)
+            {
+                var spec = mod.LookupToken(new MetadataToken(TokenType.MethodSpec, i)) as MemberReference;
+                if (spec == null) break;
+                if (spec.FullName.Contains(what)) Console.WriteLine($"{Path.GetFileName(path)}: methodspec {spec.FullName}");
+            }
+        }
+        return 0;
+    }
+
     public static int Calls(string path, string what)
     {
         var resolver = new DefaultAssemblyResolver();
