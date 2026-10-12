@@ -23,11 +23,12 @@ def main():
     ap.add_argument('src')
     ap.add_argument('--shader', default=None)
     ap.add_argument('--dump', type=int, default=2)
+    ap.add_argument('--write-ref', default=None, help='write metal_ref.json (tiers + code header) for convert_data.py')
     a = ap.parse_args()
     env = load(a.src)
     sf = list(env.files.values())[0]
     print('unity', sf.unity_version, 'platform', sf._m_target_platform)
-    tiers, types = set(), set()
+    tiers, types, heads = set(), set(), set()
     shown = 0
     for o in sf.objects.values():
         if o.type.name != 'Shader':
@@ -44,6 +45,9 @@ def main():
                     for e in p[prog]['m_SubPrograms']:
                         tiers.add(e['m_ShaderHardwareTier'])
                         types.add(e['m_GpuProgramType'])
+                        if a.write_ref:
+                            c = read_sub(segment(data, e['m_BlobIndex']))['code']
+                            heads.add(c[:c.find(b'#include')])
         if (a.shader and a.shader == name) or (not a.shader and shown < a.dump):
             shown += 1
             p = tt['m_ParsedForm']['m_SubShaders'][0]['m_Passes'][0]
@@ -61,6 +65,13 @@ def main():
                     print('  code len', len(code), 'head', code[:96].hex())
                     print('  code text', code[:400])
     print('tiers', sorted(tiers), 'program types', sorted(types))
+    if a.write_ref:
+        if len(heads) != 1:
+            sys.exit('code headers differ between programs, cannot describe them as one prefix: %r' % heads)
+        ref = {'unity': sf.unity_version, 'tiers': sorted(tiers),
+               'code_header': {'kind': 'prefix', 'hex': heads.pop().hex()}}
+        json.dump(ref, open(a.write_ref, 'w'), indent=1)
+        print('wrote', a.write_ref, ref)
 
 
 if __name__ == '__main__':
