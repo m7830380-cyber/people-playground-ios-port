@@ -48,6 +48,8 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Length >= 2 && args[0] == "analyze") return Analyze.Run(args[1]);
+        if (args.Length >= 2 && args[0] == "stackcheck") return Analyze.StackCheck(args.Skip(1).ToArray());
+        if (args.Length >= 3 && args[0] == "calls") return Analyze.Calls(args[1], args[2]);
         if (args.Length >= 4 && args[0] == "patch") return Patch(args[1], args[2], args[3]);
         Console.Error.WriteLine("usage: PpgPatcher patch <managedDir> <PPGShim.dll> <outDir> | analyze <managedDir>");
         return 1;

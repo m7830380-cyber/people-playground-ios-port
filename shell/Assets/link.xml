@@ -33,7 +33,6 @@
   <assembly fullname="UnityEngine.UI" preserve="all"/>
   <assembly fullname="WatsonTcp" preserve="all"/>
   <assembly fullname="PPGShim" preserve="all"/>
-  <assembly fullname="PPGShim" preserve="all"/>
   <assembly fullname="PPGiOS" preserve="all"/>
   <!-- Engine modules: the game data instantiates components the shell project never uses. -->
   <assembly fullname="UnityEngine.AIModule" preserve="all"/>
@@ -86,9 +85,8 @@
   <assembly fullname="System">
     <namespace fullname="System.ComponentModel" preserve="all"/>
   </assembly>
-  <assembly fullname="System.Core">
-    <namespace fullname="System.Linq.Expressions" preserve="all"/>
-    <namespace fullname="System.Linq.Expressions.Interpreter" preserve="all"/>
-  </assembly>
+  <!-- Not System.Linq.Expressions: preserving it whole drags in the expression compiler (useless without a JIT),
+       and IL2CPP 2020.3.1 fails on StackGuard's Tuple.Create<Action`3,...> instantiation ("Stack empty").
+       What Newtonsoft/Ceras actually reference is kept through their own preserve="all". -->
   <assembly fullname="System.Runtime.Serialization" preserve="all"/>
 </linker>
