@@ -1,0 +1,24 @@
+# local-only
+_old_attempt/
+.tools/
+build/
+work/
+*.ipa
+__pycache__/
+
+# Unity
+shell/[Ll]ibrary/
+shell/[Tt]emp/
+shell/[Ll]ogs/
+shell/[Uu]serSettings/
+shell/Build/
+shell/*.csproj
+shell/*.sln
+
+# dotnet
+[Bb]in/
+[Oo]bj/
+.vs/
+
+# patched retail assemblies come from the private repo at build time
+shell/Assets/Plugins/Game/

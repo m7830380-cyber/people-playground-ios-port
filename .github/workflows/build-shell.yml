@@ -1,0 +1,102 @@
+name: Build iOS shell IPA
+
+# Builds the IL2CPP player (Unity 2020.3.1f1, the game's exact version) that contains the patched game
+# assemblies from the private repo (m7830380-cyber/ppg-ios-private). Game data is injected afterwards on
+# the PC by tools/package_ipa.py. Because the result contains compiled game code, the IPA is published
+# as a release of the PRIVATE repo, never as an artifact or release of this public one.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shell/**'
+      - '.github/workflows/build-shell.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UNITY_VERSION: 2020.3.1f1
+  PRIVATE_REPO: m7830380-cyber/ppg-ios-private
+
+jobs:
+  shell:
+    runs-on: macos-14
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get patched game assemblies (private repo)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_REPO }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: private
+
+      - name: Place plugins
+        run: |
+          set -euo pipefail
+          mkdir -p shell/Assets/Plugins
+          rm -rf shell/Assets/Plugins/Game
+          cp -R private/Plugins shell/Assets/Plugins/Game
+          ls shell/Assets/Plugins/Game | grep -c '\.dll$'
+
+      - name: Select Xcode
+        run: |
+          ls -d /Applications/Xcode_*.app
+          sudo xcode-select -s /Applications/Xcode_15.4.app
+          xcodebuild -version
+
+      - name: Unity build (Xcode project)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          SHELL_OUT: ${{ github.workspace }}/xcode
+        with:
+          unityVersion: ${{ env.UNITY_VERSION }}
+          projectPath: shell
+          targetPlatform: iOS
+          buildMethod: IosShellBuild.Build
+          versioning: None
+          customParameters: -nographics
+
+      - name: Xcode build (unsigned)
+        run: |
+          set -euo pipefail
+          cd xcode
+          set +e
+          xcodebuild -project Unity-iPhone.xcodeproj -scheme Unity-iPhone -configuration Release \
+            -sdk iphoneos -derivedDataPath "$PWD/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            ENABLE_BITCODE=NO build > xcodebuild.log 2>&1
+          rc=$?
+          set -e
+          grep -E "error:|\*\* BUILD" xcodebuild.log | head -n 80 || true
+          tail -n 40 xcodebuild.log
+          exit $rc
+
+      - name: Package shell IPA
+        run: |
+          set -euo pipefail
+          APP="$(find xcode/dd -name '*.app' -path '*Release-iphoneos*' | head -n 1)"
+          echo "app: $APP"
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          zip -qry PPG-shell.ipa Payload
+          ls -lh PPG-shell.ipa
+
+      - name: Publish release (private repo)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=shell-latest
+          NOTES="Shell IPA (no game data) from public run ${{ github.run_number }} / ${{ github.sha }}, plugins $(git -C private rev-parse --short HEAD)"
+          if gh release view "$TAG" --repo "$PRIVATE_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" PPG-shell.ipa --clobber --repo "$PRIVATE_REPO"
+            gh release edit "$TAG" --notes "$NOTES" --repo "$PRIVATE_REPO"
+          else
+            gh release create "$TAG" PPG-shell.ipa --title "iOS shell (no game data)" --notes "$NOTES" --prerelease --repo "$PRIVATE_REPO"
+          fi
