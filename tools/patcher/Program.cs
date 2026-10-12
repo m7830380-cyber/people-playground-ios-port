@@ -283,6 +283,8 @@ static class Program
             n += MakeNoOp(c, steamInit, "Update");
             n += MakeNoOp(c, steamInit, "OnDestroy");
         }
+        // The "Steam is not initialised" popup in the main menu is meaningless on iOS.
+        n += MakeNoOp(c, mod.GetType("SteamWarningDialog"), "Update");
         // Workshop upload checks this first; "family shared" makes it refuse cleanly without Steam.
         n += ReturnConst(c, mod.GetType("Utils"), "IsFamilyShared", 1);
 
@@ -317,7 +319,11 @@ static class Program
         {
             var f = t?.Fields.FirstOrDefault(x => x.Name == name);
             if (f == null) { c.Fail($"{t?.Name}.{name} missing"); continue; }
+            // Unity serializes public fields: keep the serialized layout identical to the retail one
+            // (otherwise scenes fail with "file is corrupted / Position out of bounds").
+            bool serialized = f.CustomAttributes.Any(a => a.AttributeType.Name == "SerializeField");
             f.Attributes = (f.Attributes & ~FieldAttributes.FieldAccessMask) | FieldAttributes.Public;
+            if (!serialized) f.Attributes |= FieldAttributes.NotSerialized;
             n++;
         }
         return n;
