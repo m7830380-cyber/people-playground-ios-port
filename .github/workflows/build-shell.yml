@@ -103,7 +103,8 @@ jobs:
             rc=$?
             echo "attempt $attempt: exit code $rc"
             tail -n 80 /tmp/activate.log
-            [ $rc -eq 0 ] && break
+            # the placeholder project makes batchmode "fail" after activating; the license line is what counts
+            if grep -qE "License activated successfully|license is already valid and activated" /tmp/activate.log; then rc=0; break; fi
             sleep 20
           done
           for f in ~/Library/Logs/Unity/Unity.Licensing.Client.log ~/Library/Logs/Unity/Unity.Entitlements.Audit.log; do
