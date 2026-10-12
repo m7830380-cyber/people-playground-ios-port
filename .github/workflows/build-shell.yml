@@ -99,6 +99,10 @@ jobs:
           [ -n "$SERIAL" ] || { echo "could not read the serial from UNITY_LICENSE"; exit 1; }
           echo "::add-mask::$SERIAL"
           mkdir -p /tmp/activate-project
+          # Unity otherwise asks for an admin password (GUI dialog) to create these and waits forever
+          for d in "/Library/Application Support/Unity" "/Library/Application Support/Unity/licenses" "$HOME/Library/Unity/licenses"; do
+            sudo mkdir -p "$d"; sudo chown -R "$(whoami)" "$d"; sudo chmod -R 775 "$d"
+          done
           OK="License activated successfully|license is already valid and activated|Successfully activated"
           for attempt in 1 2; do
             ci/unity.sh /tmp/activate.log 240 "$OK" -quit -serial "$SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /tmp/activate-project
