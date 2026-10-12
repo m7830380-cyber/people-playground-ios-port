@@ -51,7 +51,8 @@ namespace PPGiOS
                 return b;
             }
             s_Right.Add(B("SPAWN\nMENU", "toybox"));
-            s_Right.Add(B("SPAWN\nHERE", "spawnRight"));
+            s_Right.Add(B("SPAWN\n>>", "spawnRight"));   // E on PC
+            s_Right.Add(B("SPAWN\n<<", "spawnLeft"));    // Q on PC: faces the other way
             s_Right.Add(B("ACTIVATE", "activateDirect"));
             s_Right.Add(B("ROTATE\n<<", "left", Kind.Hold));
             s_Right.Add(B("ROTATE\n>>", "right", Kind.Hold));
