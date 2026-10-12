@@ -14,10 +14,13 @@ namespace PPGiOS
     //    With the RMB toggle on, the finger is the right mouse button instead.
     //  * World, two fingers: pinch = zoom, drag = pan (drives the game's camera directly). A second
     //    finger while an object is held is ignored, so the object is never flung.
+    //  * Spawning: a finger that presses an item in the spawn menu selects it (the game's own OnPointerDown);
+    //    dragging it out of the menu into the world and lifting spawns it there (the game's "spawn" key at
+    //    the drop point). Dragging within the menu still scrolls it.
     //  * Touches that start on an on-screen button belong to the HUD.
     public static class TouchInput
     {
-        enum Mode { Idle, Pending, WorldLeft, WorldRight, Ui, Camera, Consumed }
+        enum Mode { Idle, Pending, WorldLeft, WorldRight, Ui, SpawnDrag, Camera, Consumed }
 
         public static bool RightClickMode;
         public static bool LongPressEnabled = true;
@@ -29,6 +32,7 @@ namespace PPGiOS
         static Vector2 s_StartPos, s_LastPrimary, s_LastSecondary;
         static float s_StartTime;
         static bool s_Moved;
+        static bool s_OnItem;           // primary finger went down on a spawn menu item
         static int s_PendingRightTap;   // frames until a queued right click fires
         static Vector2 s_RightTapPos;
 
@@ -53,12 +57,13 @@ namespace PPGiOS
                 VInput.TapMouseButton(1);
             }
 
-            int n = Input.touchCount;
+            TouchSim.Update();
+            int n = TouchSim.Count;
             bool primarySeen = false, secondarySeen = false;
             Touch primary = default, secondary = default;
             for (int i = 0; i < n; i++)
             {
-                Touch t = Input.GetTouch(i);
+                Touch t = TouchSim.Get(i);
                 if (t.phase == TouchPhase.Began)
                 {
                     if (Hud.TryBeginTouch(t) || DebugOverlay.TryBeginTouch(t))
@@ -112,6 +117,7 @@ namespace PPGiOS
             VInput.VMousePosition = t.position;
             if (OverUi(t.position))
             {
+                s_OnItem = HitsItemButton();
                 s_Mode = Mode.Ui;
                 VInput.SetMouseButton(0, true);
             }
@@ -168,8 +174,17 @@ namespace PPGiOS
                         Hud.Flash("right click");
                     }
                     break;
-                case Mode.WorldRight:
                 case Mode.Ui:
+                    VInput.VMousePosition = p;
+                    if (s_OnItem && s_Moved && !OverUi(p))
+                    {
+                        // item dragged out of the menu: stop the UI drag, the spawn outline follows the finger
+                        VInput.SetMouseButton(0, false);
+                        s_Mode = Mode.SpawnDrag;
+                    }
+                    break;
+                case Mode.WorldRight:
+                case Mode.SpawnDrag:
                     VInput.VMousePosition = p;
                     break;
             }
@@ -193,7 +208,12 @@ namespace PPGiOS
                     VInput.VMousePosition = pos;
                     VInput.SetMouseButton(1, false);
                     break;
+                case Mode.SpawnDrag:
+                    VInput.VMousePosition = pos;
+                    if (!OverUi(pos)) Hud.PressAction("spawnRight");
+                    break;
             }
+            s_OnItem = false;
             s_Primary = -1;
             // if a second finger is still down it does nothing until everything is lifted
             s_Mode = s_Secondary >= 0 ? Mode.Consumed : Mode.Idle;
@@ -241,6 +261,14 @@ namespace PPGiOS
             s_Hits.Clear();
             es.RaycastAll(s_Ped, s_Hits);
             return s_Hits.Count > 0;
+        }
+
+        static bool HitsItemButton()
+        {
+            foreach (var h in s_Hits)
+                if (h.gameObject != null && h.gameObject.GetComponentInParent<ItemButtonBehaviour>() != null)
+                    return true;
+            return false;
         }
 
         /// Lifts every virtual button (e.g. when the app goes to the background).

@@ -49,47 +49,74 @@ jobs:
           xcodebuild -version
 
       # Unity 2020.3.1f1 has no Apple-silicon editor (Unity Hub / game-ci fail with "Missing [Unity] section"),
-      # so install the Intel editor + iOS module directly and run it under Rosetta.
+      # so install the Intel editor + iOS module directly and run it under Rosetta. Cached between runs
+      # (only Unity itself is cached - nothing from the game).
+      - name: Restore Unity install
+        id: unity-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /Applications/Unity
+          key: unity-2020.3.1f1-ios-x64-v1
+
       - name: Install Unity ${{ env.UNITY_VERSION }} (Intel, Rosetta)
+        if: steps.unity-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          sudo softwareupdate --install-rosetta --agree-to-license || true
           BASE=https://download.unity3d.com/download_unity/77a89f25062f
           curl -fsSL --retry 3 -o /tmp/editor.pkg "$BASE/MacEditorInstaller/Unity-2020.3.1f1.pkg" &
           curl -fsSL --retry 3 -o /tmp/ios.pkg "$BASE/MacEditorTargetInstaller/UnitySetup-iOS-Support-for-Editor-2020.3.1f1.pkg" &
           wait
-          ls -lh /tmp/*.pkg
           sudo installer -pkg /tmp/editor.pkg -target /
           sudo installer -pkg /tmp/ios.pkg -target /
           rm -f /tmp/editor.pkg /tmp/ios.pkg
+          sudo chown -R "$(whoami)" /Applications/Unity
+
+      - name: Save Unity install
+        if: steps.unity-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /Applications/Unity
+          key: unity-2020.3.1f1-ios-x64-v1
+
+      - name: Check Unity
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
           ls /Applications/Unity/PlaybackEngines
           file /Applications/Unity/Unity.app/Contents/MacOS/Unity
 
       # The .ulf is bound to the machine it was made on, so activate this runner with the serial inside it
-      # (same as game-ci does on macOS) and return the seat afterwards.
+      # (what game-ci does on macOS) and return the seat afterwards.
       - name: Activate Unity
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
-          set -uo pipefail
+          set +e
           SERIAL=$(printf '%s' "$UNITY_LICENSE" | python3 -c "import sys,re,base64; d=re.search(r'<DeveloperData Value=\"([^\"]+)\"',sys.stdin.read()).group(1); print(base64.b64decode(d)[4:].decode())")
+          [ -n "$SERIAL" ] || { echo "could not read the serial from UNITY_LICENSE"; exit 1; }
           echo "::add-mask::$SERIAL"
+          echo "serial length ${#SERIAL}"
+          mkdir -p /tmp/activate-project
           for attempt in 1 2 3; do
-            arch -x86_64 /Applications/Unity/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -logFile "$PWD/activate.log"               -serial "$SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD"
+            arch -x86_64 /Applications/Unity/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -logFile /tmp/activate.log               -serial "$SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /tmp/activate-project
             rc=$?
-            grep -iE "licens|serial|activat|error" activate.log | grep -v "^\s*$" | head -n 40
+            echo "attempt $attempt: exit code $rc"
+            tail -n 80 /tmp/activate.log
             [ $rc -eq 0 ] && break
             sleep 20
           done
+          for f in ~/Library/Logs/Unity/Unity.Licensing.Client.log ~/Library/Logs/Unity/Unity.Entitlements.Audit.log; do
+            [ -f "$f" ] && { echo "== $f"; tail -n 40 "$f"; }
+          done
+          ls -la "/Library/Application Support/Unity" 2>/dev/null
           exit $rc
 
       - name: Unity build (Xcode project)
         env:
           SHELL_OUT: ${{ github.workspace }}/xcode
         run: |
-          set -uo pipefail
+          set +e
           arch -x86_64 /Applications/Unity/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -logFile "$PWD/unity.log"             -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
           rc=$?
           grep -iE "error|exception|\[PPG" unity.log | grep -v "^UnityEngine" | head -n 150 || true

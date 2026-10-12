@@ -47,7 +47,8 @@ namespace PPGiOS
             {
                 Input.simulateMouseWithTouches = false;
                 Input.multiTouchEnabled = true;
-                VInput.Virtual = OnDevice || Input.touchSupported;
+                TouchSim.Init();
+                VInput.Virtual = OnDevice || Input.touchSupported || TouchSim.Enabled;
                 Screen.sleepTimeout = SleepTimeout.NeverSleep;
                 Platform.ApplyFrameRate();
                 Log.Info($"virtual input={VInput.Virtual} targetFrameRate={Application.targetFrameRate}");

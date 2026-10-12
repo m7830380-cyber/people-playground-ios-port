@@ -54,6 +54,8 @@ namespace PPGiOS
 
         static void OnLog(string condition, string stackTrace, LogType type)
         {
+            // the game's Steam stats code reports this once when Steam is absent - expected on iOS
+            if (type == LogType.Error && condition != null && condition.StartsWith("Max stat failure count")) { type = LogType.Log; stackTrace = null; }
             string tag = type == LogType.Log ? "I" : type == LogType.Warning ? "W" : "E";
             lock (s_Lock)
             {

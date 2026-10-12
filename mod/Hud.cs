@@ -51,9 +51,10 @@ namespace PPGiOS
                 return b;
             }
             s_Right.Add(B("SPAWN\nMENU", "toybox"));
+            s_Right.Add(B("SPAWN\nHERE", "spawnRight"));
             s_Right.Add(B("ACTIVATE", "activateDirect"));
-            s_Right.Add(B("ROTATE\n↺", "left", Kind.Hold));
-            s_Right.Add(B("ROTATE\n↻", "right", Kind.Hold));
+            s_Right.Add(B("ROTATE\n<<", "left", Kind.Hold));
+            s_Right.Add(B("ROTATE\n>>", "right", Kind.Hold));
             s_Right.Add(B("FREEZE", "freezeSelection"));
             s_Right.Add(B("DELETE", "delete"));
             s_Right.Add(B("UNDO", "undo"));
@@ -104,29 +105,32 @@ namespace PPGiOS
             Rect safe = UnityEngine.Screen.safeArea;
             float h = UnityEngine.Screen.height;
             float dpi = UnityEngine.Screen.dpi > 0 ? UnityEngine.Screen.dpi : 326f;
+            float ui = h / 1080f;                       // the game's UI is laid out for 1080p and scales with height
             float margin = Mathf.Max(8f, dpi * 0.03f);
-            float size = Mathf.Min(dpi * 0.34f, (safe.height - 2 * margin) / 8.4f);
-            float gap = size * 0.12f;
+            float bh = Mathf.Max(dpi * 0.26f, h * 0.075f);
+            float size = Mathf.Min(Mathf.Max(dpi * 0.34f, h * 0.1f), (safe.height - bh - 3 * margin - 70f * ui) / (s_Right.Count + 0.15f * (s_Right.Count - 1)));
+            float gap = size * 0.15f;
 
-            // right column, top to bottom, ending above the bottom row
-            float x = safe.xMax - margin - size;
-            float y = safe.yMax - margin - size;
+            // right column, left of the game's own tool strip (~70 px at 1080p), below its top-right buttons
+            float x = safe.xMax - 72f * ui - margin - size;
+            float y = safe.yMax - 70f * ui - size;
             foreach (var b in s_Right)
             {
                 b.Screen = new Rect(x, y, size, size);
                 y -= size + gap;
             }
-            // bottom row, centred, plus HIDE at the right end
-            float bh = size * 0.8f, bw = size * 1.05f;
+            // bottom row, centred between the game's bottom-left buttons (~350 px) and the right edge
+            float bw = bh * 1.3f;
             float total = s_Bottom.Count * (bw + gap) - gap;
-            float bx = Mathf.Max(safe.xMin + margin, safe.center.x - total * 0.5f);
+            float left = safe.xMin + 360f * ui;
+            float bx = Mathf.Max(left, (left + safe.xMax) * 0.5f - total * 0.5f);
             float by = safe.yMin + margin * 0.5f;
             foreach (var b in s_Bottom)
             {
                 b.Screen = new Rect(bx, by, bw, bh);
                 bx += bw + gap;
             }
-            s_HideBtn.Screen = new Rect(safe.xMax - margin - size, by, size, bh);
+            s_HideBtn.Screen = new Rect(safe.xMax - 72f * ui - margin - size, by, size, bh);
         }
 
         static IEnumerable<Btn> ActiveButtons()
@@ -220,6 +224,16 @@ namespace PPGiOS
         public static void ReleaseAll()
         {
             ReleaseHolds();
+        }
+
+        /// One-frame press of a game action's key (e.g. spawn after a drag from the spawn menu).
+        public static void PressAction(string action)
+        {
+            if (Resolve(action, out var k, out var k2))
+            {
+                if (k2 != KeyCode.None) VInput.TapKey(k2, 2);
+                VInput.TapKey(k, 2);
+            }
         }
 
         static bool Resolve(string action, out KeyCode key, out KeyCode secondary)
