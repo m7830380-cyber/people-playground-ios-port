@@ -122,9 +122,13 @@ jobs:
         env:
           SHELL_OUT: ${{ github.workspace }}/xcode
         run: |
+          set +e
           ci/unity.sh "$PWD/unity.log" 4200 "" -quit -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
           rc=$?
-          echo "---- last lines"; tail -n 60 unity.log
+          echo "---- error lines"; grep -n -i -E "error|exception|failed|cannot|could not" unity.log | head -n 80
+          echo "---- last lines"; tail -n 120 unity.log
+          [ -f shell/Logs/upm.log ] && { echo "---- upm.log"; tail -n 60 shell/Logs/upm.log; }
+          [ -f ~/Library/Logs/Unity/upm.log ] && { echo "---- ~/upm.log"; tail -n 60 ~/Library/Logs/Unity/upm.log; }
           [ -f xcode/Unity-iPhone.xcodeproj/project.pbxproj ] || { echo "no Xcode project produced"; exit 1; }
           exit $rc
 
