@@ -108,6 +108,12 @@ def build_metal_params(refl, msl, P, cbname_map):
             ov = orig_vars.get((ocb, r['name']))
             if ov is None:
                 raise ConvertError('unknown const %s.%s' % (ocb, r['name']))
+            if ov.get('struct'):
+                st = dict(ov['struct'], index=off)
+                cur['structs'].append(st)
+                off += st['size'] * max(1, st['arraySize'])
+                cur['size'] = off
+                continue
             cur['params'].append(dict(name=r['name'], type=ov['type'], rows=ov['rows'], cols=ov['cols'],
                                       isMatrix=ov['isMatrix'], arraySize=ov['arraySize'], index=off))
             off += size
@@ -201,8 +207,13 @@ def tt_params(cbs, binds, N):
         if cb['name'] == '':
             out['m_VectorParams'], out['m_MatrixParams'] = vec, mat
             continue
+        structs = []
+        for st in cb['structs']:
+            svec, smat = split(st['params'])
+            structs.append(dict(m_NameIndex=N(st['name']), m_Index=st['index'], m_ArraySize=st['arraySize'],
+                                m_StructSize=st['size'], m_VectorMembers=svec, m_MatrixMembers=smat))
         out['m_ConstantBuffers'].append(dict(m_NameIndex=N(cb['name']), m_MatrixParams=mat, m_VectorParams=vec,
-                                             m_StructParams=[], m_Size=cb['size']))
+                                             m_StructParams=structs, m_Size=cb['size']))
     for b in binds:
         k = b['kind']
         if k == 'tex':

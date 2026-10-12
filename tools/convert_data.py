@@ -23,7 +23,7 @@ PLAYER_FILES = ['globalgamemanagers', 'globalgamemanagers.assets', 'level0', 'le
                 'sharedassets0.assets', 'sharedassets1.assets', 'sharedassets2.assets', 'Resources/unity_builtin_extra']
 COPY_WITH = ['.resS', '.resource']
 DEFAULT_GAME = r'C:\Program Files (x86)\Steam\steamapps\common\People Playground'
-CONVERTER_VERSION = '1'   # bump to invalidate the shader cache
+CONVERTER_VERSION = '2'   # bump to invalidate the shader cache
 
 
 def log(*a):

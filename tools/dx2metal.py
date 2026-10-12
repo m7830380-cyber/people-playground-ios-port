@@ -49,8 +49,14 @@ def merge_params(common, names, bp):
             for p in cb['params']:
                 addvar(cb['name'], dict(name=p['name'], type=p['type'], rows=p['rows'], cols=p['cols'],
                                         isMatrix=p['isMatrix'], arraySize=p['arraySize'], offset=p['index']))
-            if cb['structs']:
-                raise NotImplementedError('struct params')
+            for st in cb['structs']:
+                # Described to HLSLcc as a flat float4 array covering the struct array (DXBC addresses
+                # cbuffers by register anyway); build_metal_params maps it back to the struct.
+                if st['size'] % 16:
+                    raise NotImplementedError('struct size %d not a multiple of 16' % st['size'])
+                addvar(cb['name'], dict(name=st['name'], type=0, rows=1, cols=4, isMatrix=0,
+                                        arraySize=st['size'] * max(1, st['arraySize']) // 16, offset=st['index'],
+                                        struct=st))
         for b in bp['binds']:
             k = b['kind']
             if k == 'tex':
