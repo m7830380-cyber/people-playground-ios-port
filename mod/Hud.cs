@@ -54,6 +54,7 @@ namespace PPGiOS
             s_Right.Add(B("SPAWN\n>>", "spawnRight"));   // E on PC
             s_Right.Add(B("SPAWN\n<<", "spawnLeft"));    // Q on PC: faces the other way
             s_Right.Add(B("ACTIVATE", "activateDirect"));
+            s_Right.Add(B("INSPECT", "toggleLimbStatus"));   // the game's detail view
             s_Right.Add(B("ROTATE\n<<", "left", Kind.Hold));
             s_Right.Add(B("ROTATE\n>>", "right", Kind.Hold));
             s_Right.Add(B("FREEZE", "freezeSelection"));
