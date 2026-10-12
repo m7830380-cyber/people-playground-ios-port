@@ -84,7 +84,19 @@ public static class IosShellBuild
         var report = BuildPipeline.BuildPlayer(opts);
         Debug.Log("[IosShellBuild] result: " + report.summary.result + " errors=" + report.summary.totalErrors);
         if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
+        {
+            // Keep the linked assemblies IL2CPP choked on (Temp is wiped when the editor quits) so CI can
+            // hand them to the private repo for inspection. They contain game code: never publish them here.
+            string dbg = Environment.GetEnvironmentVariable("SHELL_DEBUG_OUT");
+            if (!string.IsNullOrEmpty(dbg) && Directory.Exists("Temp/StagingArea/Data/Managed"))
+            {
+                Directory.CreateDirectory(dbg);
+                foreach (var f in Directory.GetFiles("Temp/StagingArea/Data/Managed", "*.dll"))
+                    File.Copy(f, Path.Combine(dbg, Path.GetFileName(f)), true);
+                Debug.Log("[IosShellBuild] copied staged assemblies to " + dbg);
+            }
             EditorApplication.Exit(1);
+        }
     }
 
     [PostProcessBuild(100)]

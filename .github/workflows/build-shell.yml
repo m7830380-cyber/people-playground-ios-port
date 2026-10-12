@@ -124,6 +124,7 @@ jobs:
         timeout-minutes: 75
         env:
           SHELL_OUT: ${{ github.workspace }}/xcode
+          SHELL_DEBUG_OUT: ${{ github.workspace }}/staged-managed
         run: |
           set +e
           ci/unity.sh "$PWD/unity.log" 4200 "" -quit -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
@@ -144,6 +145,17 @@ jobs:
         run: |
           [ -x /Applications/Unity/Unity.app/Contents/MacOS/Unity ] || exit 0
           ci/unity.sh /tmp/return.log 150 "" -quit -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" || true
+
+      # Linked assemblies of a failed IL2CPP run go to the PRIVATE repo only (they contain game code).
+      - name: Upload staged assemblies for debugging (private repo)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          [ -d staged-managed ] || { echo "nothing staged"; exit 0; }
+          zip -qrj staged-managed.zip staged-managed
+          gh release view debug-staged --repo "$PRIVATE_REPO" >/dev/null 2>&1 ||             gh release create debug-staged --title "debug: staged assemblies" --notes "from failed shell builds" --prerelease --repo "$PRIVATE_REPO"
+          gh release upload debug-staged staged-managed.zip --clobber --repo "$PRIVATE_REPO"
 
       - name: Xcode build (unsigned)
         run: |
