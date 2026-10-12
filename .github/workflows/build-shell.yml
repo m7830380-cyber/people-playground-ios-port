@@ -103,6 +103,9 @@ jobs:
           for d in "/Library/Application Support/Unity" "/Library/Application Support/Unity/licenses" "$HOME/Library/Unity/licenses"; do
             sudo mkdir -p "$d"; sudo chown -R "$(whoami)" "$d"; sudo chmod -R 775 "$d"
           done
+          # mkdir -p above made ~/Library/Unity root-owned; Unity keeps its package cache there
+          sudo chown -R "$(whoami)" "$HOME/Library/Unity" "/Library/Application Support/Unity"
+          mkdir -p "$HOME/Library/Unity/cache"
           OK="License activated successfully|license is already valid and activated|Successfully activated"
           for attempt in 1 2; do
             ci/unity.sh /tmp/activate.log 240 "$OK" -quit -serial "$SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /tmp/activate-project
