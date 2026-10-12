@@ -48,20 +48,52 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_15.4.app
           xcodebuild -version
 
-      - name: Unity build (Xcode project)
-        uses: game-ci/unity-builder@v4
+      # Unity 2020.3.1f1 has no Apple-silicon editor (Unity Hub / game-ci fail with "Missing [Unity] section"),
+      # so install the Intel editor + iOS module directly and run it under Rosetta.
+      - name: Install Unity ${{ env.UNITY_VERSION }} (Intel, Rosetta)
+        run: |
+          set -euo pipefail
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          BASE=https://download.unity3d.com/download_unity/77a89f25062f
+          curl -fsSL --retry 3 -o /tmp/editor.pkg "$BASE/MacEditorInstaller/Unity-2020.3.1f1.pkg" &
+          curl -fsSL --retry 3 -o /tmp/ios.pkg "$BASE/MacEditorTargetInstaller/UnitySetup-iOS-Support-for-Editor-2020.3.1f1.pkg" &
+          wait
+          ls -lh /tmp/*.pkg
+          sudo installer -pkg /tmp/editor.pkg -target /
+          sudo installer -pkg /tmp/ios.pkg -target /
+          rm -f /tmp/editor.pkg /tmp/ios.pkg
+          ls /Applications/Unity/PlaybackEngines
+          file /Applications/Unity/Unity.app/Contents/MacOS/Unity
+
+      - name: Unity license
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          set -euo pipefail
+          sudo mkdir -p "/Library/Application Support/Unity"
+          printf '%s' "$UNITY_LICENSE" | sudo tee "/Library/Application Support/Unity/Unity_lic.ulf" > /dev/null
+          sudo chmod 666 "/Library/Application Support/Unity/Unity_lic.ulf"
+          sudo chmod 777 "/Library/Application Support/Unity"
+
+      - name: Unity build (Xcode project)
+        env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
           SHELL_OUT: ${{ github.workspace }}/xcode
-        with:
-          unityVersion: ${{ env.UNITY_VERSION }}
-          projectPath: shell
-          targetPlatform: iOS
-          buildMethod: IosShellBuild.Build
-          versioning: None
-          customParameters: -nographics
+        run: |
+          set -uo pipefail
+          U=/Applications/Unity/Unity.app/Contents/MacOS/Unity
+          arch -x86_64 "$U" -batchmode -nographics -quit -logFile "$PWD/unity.log"             -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
+          rc=$?
+          if [ $rc -ne 0 ] && grep -qiE "no valid (unity )?license|license is not valid|LICENSE SYSTEM.*(error|fail)" unity.log; then
+            echo "::warning::.ulf rejected, retrying with account login"
+            arch -x86_64 "$U" -batchmode -nographics -quit -logFile "$PWD/unity.log"               -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD"               -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
+            rc=$?
+          fi
+          grep -iE "error|exception|license|\[PPG" unity.log | grep -v "^UnityEngine" | head -n 150 || true
+          tail -n 60 unity.log
+          [ -f xcode/Unity-iPhone.xcodeproj/project.pbxproj ] || { echo "no Xcode project produced"; exit 1; }
+          exit $rc
 
       - name: Xcode build (unsigned)
         run: |
