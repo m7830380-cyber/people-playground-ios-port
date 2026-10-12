@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - 'shell/**'
+      - 'ci/**'
       - '.github/workflows/build-shell.yml'
   workflow_dispatch:
 
@@ -87,6 +88,7 @@ jobs:
       # The .ulf is bound to the machine it was made on, so activate this runner with the serial inside it
       # (what game-ci does on macOS) and return the seat afterwards.
       - name: Activate Unity
+        timeout-minutes: 12
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
@@ -96,43 +98,41 @@ jobs:
           SERIAL=$(printf '%s' "$UNITY_LICENSE" | python3 -c "import sys,re,base64; d=re.search(r'<DeveloperData Value=\"([^\"]+)\"',sys.stdin.read()).group(1); print(base64.b64decode(d)[4:].decode())")
           [ -n "$SERIAL" ] || { echo "could not read the serial from UNITY_LICENSE"; exit 1; }
           echo "::add-mask::$SERIAL"
-          echo "serial length ${#SERIAL}"
           mkdir -p /tmp/activate-project
-          for attempt in 1 2 3; do
-            arch -x86_64 /Applications/Unity/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -logFile /tmp/activate.log               -serial "$SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /tmp/activate-project
+          OK="License activated successfully|license is already valid and activated|Successfully activated"
+          for attempt in 1 2; do
+            ci/unity.sh /tmp/activate.log 240 "$OK" -quit -serial "$SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /tmp/activate-project
             rc=$?
             echo "attempt $attempt: exit code $rc"
-            tail -n 80 /tmp/activate.log
-            # the placeholder project makes batchmode "fail" after activating; the license line is what counts
-            if grep -qE "License activated successfully|license is already valid and activated" /tmp/activate.log; then rc=0; break; fi
-            sleep 20
+            [ $rc = 0 ] && break
+            tail -n 60 /tmp/activate.log
           done
           for f in ~/Library/Logs/Unity/Unity.Licensing.Client.log ~/Library/Logs/Unity/Unity.Entitlements.Audit.log; do
-            [ -f "$f" ] && { echo "== $f"; tail -n 40 "$f"; }
+            [ -f "$f" ] && { echo "== $f"; tail -n 30 "$f"; }
           done
           ls -la "/Library/Application Support/Unity" 2>/dev/null
           exit $rc
 
       - name: Unity build (Xcode project)
+        timeout-minutes: 75
         env:
           SHELL_OUT: ${{ github.workspace }}/xcode
         run: |
-          set +e
-          arch -x86_64 /Applications/Unity/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -logFile "$PWD/unity.log"             -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
+          ci/unity.sh "$PWD/unity.log" 4200 "" -quit -projectPath "$PWD/shell" -buildTarget iOS -executeMethod IosShellBuild.Build
           rc=$?
-          grep -iE "error|exception|\[PPG" unity.log | grep -v "^UnityEngine" | head -n 150 || true
-          tail -n 60 unity.log
+          echo "---- last lines"; tail -n 60 unity.log
           [ -f xcode/Unity-iPhone.xcodeproj/project.pbxproj ] || { echo "no Xcode project produced"; exit 1; }
           exit $rc
 
       - name: Return Unity license
         if: always()
+        timeout-minutes: 4
         env:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
           [ -x /Applications/Unity/Unity.app/Contents/MacOS/Unity ] || exit 0
-          arch -x86_64 /Applications/Unity/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -logFile -             -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" 2>&1 | grep -iE "licens|return" | head -n 20 || true
+          ci/unity.sh /tmp/return.log 150 "" -quit -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" || true
 
       - name: Xcode build (unsigned)
         run: |
