@@ -16,6 +16,9 @@
 //  * Application.isMobilePlatform reads false (the game quits on mobile when objects collide).
 //  * vSyncCount / targetFrameRate go through PPGShim.Platform (iOS needs an explicit frame rate).
 //  * Windows "\" separators in path literals become "/".
+//  * Ceras Serialize/Deserialize calls go to PPGShim.CerasCompat (IL2CPP can't run Ceras' generated code).
+// Unity.Postprocessing.Runtime:
+//  * compute shaders are reported unsupported (they have no Metal translation).
 using System.Text.RegularExpressions;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -80,6 +83,8 @@ static class Program
                 n += RedirectInput(ctx);
             if (asm.Name.Name == "Assembly-CSharp")
                 n += PatchGame(ctx);
+            if (asm.Name.Name == "Unity.Postprocessing.Runtime")
+                n += NoComputeShaders(ctx);
             total += n;
             failures += ctx.Failures;
             asm.Write(Path.Combine(outDir, name));
@@ -360,6 +365,76 @@ static class Program
 
         // --- fields the touch layer drives directly (pinch zoom / two-finger pan) -------------
         n += MakePublic(c, mod.GetType("CameraControlBehaviour"), "targetZoom", "targetPos");
+
+        n += RedirectCeras(c);
+        return n;
+    }
+
+    // Ceras compiles its formatters with System.Linq.Expressions (byref delegates: not interpretable under
+    // IL2CPP) and builds generic formatters over value types at runtime (never AOT-compiled), so the first
+    // serializer use threw inside Global.Awake and left the game half-initialised (no camera, no input).
+    // Every Serialize/Deserialize call goes to PPGShim.CerasCompat (same wire format, reflection only), and
+    // ContraptionSerialiser.Initialise no longer configures Unity formatters (that alone throws: it creates
+    // TypeConfig<Vector2>); the formats it selected are what CerasCompat writes anyway.
+    static int RedirectCeras(Ctx c)
+    {
+        var mod = c.Mod;
+        int n = 0;
+        var compat = c.ShimType("CerasCompat");
+        MethodDefinition Target(string name, int paramCount) =>
+            compat.Methods.First(m => m.Name == name && m.Parameters.Count == paramCount);
+        foreach (var (m, ins) in Calls(mod))
+        {
+            var mr = (MethodReference)ins.Operand;
+            if (mr.DeclaringType.FullName != "Ceras.CerasSerializer" || mr.Name == ".ctor") continue;
+            MethodDefinition target = null;
+            string sig = Sig(mr.GetElementMethod()).Replace("!!0", "T");
+            if (mr.Name == "Serialize" && sig == "T") target = Target("Serialize", 2);
+            else if (mr.Name == "Deserialize" && sig == "System.Byte[]") target = Target("Deserialize", 2);
+            else if (mr.Name == "Deserialize" && sig == "T&,System.Byte[]") target = Target("Deserialize", 3);
+            if (target == null || !(mr is GenericInstanceMethod gim))
+            {
+                c.Fail($"unhandled Ceras call {mr.FullName} in {m.FullName}");
+                continue;
+            }
+            var call = new GenericInstanceMethod(mod.ImportReference(target));
+            foreach (var a in gim.GenericArguments) call.GenericArguments.Add(a);
+            ins.OpCode = OpCodes.Call;
+            ins.Operand = call;
+            n++;
+        }
+        if (n == 0) c.Fail("no Ceras calls found");
+
+        var init = mod.GetType("ContraptionSerialiser")?.Methods.FirstOrDefault(x => x.Name == "Initialise");
+        var apply = init?.Body.Instructions.FirstOrDefault(i => i.Operand is MethodReference r && r.Name == "ApplyToConfig");
+        if (apply == null) c.Fail("ContraptionSerialiser.Initialise: ApplyToConfig call missing");
+        else
+        {
+            apply.OpCode = OpCodes.Pop;
+            apply.Operand = null;
+            n++;
+        }
+        return n;
+    }
+
+    // Post-processing compute shaders (auto exposure histogram, 3D LUT baker, MSVO ambient occlusion) are
+    // DX11 bytecode with no Metal translation. With compute reported unsupported, the post-processing stack
+    // skips auto exposure and uses its pixel-shader paths (2D LUT colour grading) instead of throwing
+    // "Kernel 'KEyeHistogramClear' not found" every frame, which aborted the whole effect stack.
+    static int NoComputeShaders(Ctx c)
+    {
+        int n = 0;
+        foreach (var (m, ins) in Calls(c.Mod))
+        {
+            var mr = (MethodReference)ins.Operand;
+            if (mr.DeclaringType.FullName == "UnityEngine.SystemInfo" && mr.Name == "get_supportsComputeShaders")
+            {
+                ins.OpCode = OpCodes.Ldc_I4_0;
+                ins.Operand = null;
+                n++;
+            }
+        }
+        if (n == 0) c.Fail("no SystemInfo.supportsComputeShaders reads found");
         return n;
     }
 

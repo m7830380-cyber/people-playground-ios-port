@@ -18,8 +18,7 @@ namespace PPGiOS
         static readonly Queue<string> s_Recent = new Queue<string>();
         public static int ErrorCount;
         public static int WarningCount;
-        static string s_LastMessage;
-        static int s_Repeats;
+        static readonly Dictionary<string, int> s_Counts = new Dictionary<string, int>();
         static bool s_Initialised;
 
         public static void Init(string dir)
@@ -59,21 +58,21 @@ namespace PPGiOS
             string tag = type == LogType.Log ? "I" : type == LogType.Warning ? "W" : "E";
             lock (s_Lock)
             {
-                if (condition == s_LastMessage)
-                {
-                    // the game can spam the same message every frame; collapse repeats
-                    s_Repeats++;
-                    if (s_Repeats != 10 && s_Repeats != 100 && s_Repeats % 1000 != 0) return;
-                    condition = $"(repeated x{s_Repeats}) " + condition;
-                }
-                else
-                {
-                    s_LastMessage = condition;
-                    s_Repeats = 0;
-                }
+                // the game can spam the same message (or the same few messages in turn) every frame:
+                // after the first 3, only the 10th, 100th and every 1000th occurrence is written
+                if (condition == null) condition = "";
                 if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert) ErrorCount++;
                 else if (type == LogType.Warning) WarningCount++;
+                s_Counts.TryGetValue(condition, out int seen);
+                seen++;
+                if (s_Counts.Count < 5000 || seen > 1) s_Counts[condition] = seen;
+                if (seen > 3)
+                {
+                    if (seen != 10 && seen != 100 && seen % 1000 != 0) return;
+                    condition = $"(seen x{seen}) " + condition;
+                }
                 bool withStack = type == LogType.Exception || type == LogType.Error || type == LogType.Assert;
+                if (stackTrace != null && stackTrace.StartsWith("Stacktrace is not supported")) withStack = false;
                 WriteLocked(tag, condition, withStack ? stackTrace : null);
             }
         }

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- PC check that shim/CerasCompat.cs reads and writes exactly what the game's Ceras does:
+       dotnet run -c Release [contraptions dir] -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ManagedDir Condition="'$(ManagedDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\People Playground\People Playground_Data\Managed</ManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\shim\CerasCompat.cs" Link="CerasCompat.cs" />
+    <Reference Include="Ceras"><HintPath>$(ManagedDir)\Ceras.dll</HintPath></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(ManagedDir)\Assembly-CSharp-firstpass.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe"><HintPath>$(ManagedDir)\System.Runtime.CompilerServices.Unsafe.dll</HintPath></Reference>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

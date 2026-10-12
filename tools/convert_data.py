@@ -100,9 +100,12 @@ def process_player_file(src, dst, cache_dir, work_dir, ref):
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     with open(dst, 'wb') as f:
         f.write(sf.save())
-    for ext in COPY_WITH:
-        if os.path.exists(src + ext):
-            shutil.copyfile(src + ext, dst + ext)
+    # streamed data next to the file: <name>.resS / <name>.resource, and for "x.assets" also "x.resource"
+    # (audio: sharedassets0.assets -> sharedassets0.resource, resources.assets -> resources.resource)
+    for base_src, base_dst in {(src, dst), (os.path.splitext(src)[0], os.path.splitext(dst)[0])}:
+        for ext in COPY_WITH:
+            if os.path.exists(base_src + ext):
+                shutil.copyfile(base_src + ext, base_dst + ext)
     return n, report
 
 
